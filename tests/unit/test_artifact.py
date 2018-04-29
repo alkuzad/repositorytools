@@ -1,8 +1,14 @@
 from unittest import TestCase
 import logging
+import os
 import six
 
-from repositorytools import LocalArtifact
+try:
+    from mock import MagicMock, patch, mock_open
+except ImportError:
+    from unittest.mock import MagicMock, patch, mock_open
+
+from repositorytools import LocalArtifact, LocalArtifactWithPom
 
 
 class ArtifactTest(TestCase):
@@ -25,3 +31,24 @@ class ArtifactTest(TestCase):
             self.assertEqual(expected_name, local_artifact.artifact)
             self.assertEqual(expected_version, local_artifact.version)
             self.assertEqual(expected_extension, local_artifact.extension)
+
+class LocalArtifactWithPomTest(TestCase):
+    def setUp(self):
+        logging.basicConfig(level=logging.DEBUG)
+        self.patch_os = patch('os.path.exists', return_value=True)
+        self.patch_os.start()
+        self.addCleanup(self.patch_os.stop)
+
+    def test_pom_filename(self):
+        with patch('repositorytools.lib.artifact.LocalArtifactWithPom.detect_from_pom', return_value=(None, None, None, None, None)):
+            artifact = LocalArtifactWithPom('my_local_path/devbox-2.0.0.jar')
+            self.assertEqual(artifact._pom_local_path(), 'my_local_path/devbox-2.0.0.pom')
+
+    def test_pom_file_to_dict_raises_on_invalid_data(self):
+        with patch('builtins.open', mock_open(read_data='garbage')):
+            with self.assertRaises(ValueError):
+                artifact = LocalArtifactWithPom('.')
+
+    def test_pom_file_to_dict_parses_pom(self):
+        artifact = LocalArtifactWithPom(os.path.join(os.path.dirname(__file__), 'neo4j.jar'))
+        self.assertEqual(str(artifact), 'org.neo4j:neo4j-cypher-compiler-2.1:2.1.2:jdk15:jar')

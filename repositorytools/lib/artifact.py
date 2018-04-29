@@ -1,6 +1,9 @@
-__all__ = ['NameVerDetectionError', 'Artifact', 'LocalArtifact', 'LocalRpmArtifact', 'RemoteArtifact']
+__all__ = ['NameVerDetectionError', 'Artifact', 'LocalArtifact', 'LocalRpmArtifact',
+           'RemoteArtifact', 'LocalArtifactWithPom']
 
 import six.moves.urllib.parse
+import xmltodict
+import xml
 import itertools
 import re
 import os
@@ -69,6 +72,64 @@ class LocalArtifact(Artifact):
         logger.debug('name: %s, version: %s, extension: %s', name, version, extension)
         return name, version, extension
 
+class LocalArtifactWithPom(Artifact):
+    """
+    Artifact for upload to repository, with POM file describing it's content
+    """
+    def __init__(self, local_path, group='', artifact='', version='', classifier='', extension=''):
+        self.local_path = local_path
+
+        if os.path.exists(self._pom_local_path()):
+            group_detected, artifact_detected, version_detected, classifier_detected, extension_detected = self.detect_from_pom()
+        else:
+            raise IOError("'{0}' does not exist".format(self._pom_local_path()))
+
+        if not group:
+            group = group_detected
+
+        if not artifact:
+            artifact = artifact_detected
+
+        if not version:
+            version = version_detected
+
+        if not classifier:
+            classifier = classifier_detected
+
+        if not extension:
+            extension = extension_detected
+
+        super(LocalArtifactWithPom, self).__init__(group, artifact=artifact, version=version, classifier=classifier,
+                                                   extension=extension)
+
+    def _pom_local_path(self):
+        extension = os.path.splitext(self.local_path)[1]
+        if self.local_path.count(extension) > 0 and self.local_path.endswith(extension):
+            return self.local_path.replace(extension, '.pom', 1)
+
+    def _pom_file_to_dict(self):
+        try:
+            return xmltodict.parse(open(self._pom_local_path()).read())
+        except xml.parsers.expat.ExpatError:
+            raise ValueError("POM file with invalid structure {0}".format(self._pom_local_path()))
+
+    def detect_from_pom(self):
+        content = self._pom_file_to_dict()
+
+        group = artifact = extension = version = classifier = ''
+        if 'project' in content:
+            if 'groupId' in content['project']:
+                group = content['project']['groupId']
+            if 'artifactId' in content['project']:
+                artifact = content['project']['artifactId']
+            if 'packaging' in content['project']:
+                extension = content['project']['packaging']
+            if 'version' in content['project']:
+                version = content['project']['version']
+            if 'classifier' in content['project']:
+                classifier = content['project']['classifier']
+
+        return group, artifact, version, classifier, extension
 
 class LocalRpmArtifact(LocalArtifact):
     """
